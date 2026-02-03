@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project name="maven-antrun-" default="main">
   <target name="main">
-    <copy file="C:\Users\bauza\Desktop\CMCLiteBans\target/CMCLiteBans-1.0-SNAPSHOT.jar" tofile="C:/Users/bauza/Desktop/Study/1.20.6 - 1.21.4 - 1.21.11/plugins/CMCLiteBans-1.0-SNAPSHOT.jar" />
+    <copy file="C:\Users\bauza\Desktop\CMCLiteBans\target/CMCLite 1.0.jar" tofile="C:/Users/bauza/Desktop/Study/1.20.6 - 1.21.4 - 1.21.11/plugins/CMCLite 1.0.jar" />
+    <delete file="C:\Users\bauza\Desktop\CMCLiteBans\target/original-CMCLite 1.0.jar" />
   </target>
 </project>

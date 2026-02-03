@@ -3,7 +3,7 @@ version: 1.0
 main: com.LiteBansByCMC.BausmePlugin
 api-version: 1.21
 authors:
-  - detektyvas
+  - DetectiveTech
 depend: [LiteBans]
 softdepend: [AuthMe, CoreProtect]
 commands:

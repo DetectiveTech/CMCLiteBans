@@ -6,7 +6,7 @@
 
     <groupId>com.LiteBansByCMC</groupId>
     <artifactId>CMCLiteBans</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0</version>
     <packaging>jar</packaging>
 
     <properties>
@@ -17,25 +17,18 @@
     </properties>
 
     <repositories>
-        <!-- 1. Spigot (Pagrindinis) -->
         <repository>
             <id>spigot-repo</id>
             <url>https://hub.spigotmc.org/nexus/content/repositories/snapshots/</url>
         </repository>
-
-        <!-- 2. JitPack (LiteBans API) -->
         <repository>
             <id>jitpack.io</id>
             <url>https://jitpack.io</url>
         </repository>
-
-        <!-- 3. CodeMC (AuthMe) -->
         <repository>
             <id>codemc-repo</id>
             <url>https://repo.codemc.org/repository/maven-public/</url>
         </repository>
-
-        <!-- 4. PlayPro (CoreProtect) -->
         <repository>
             <id>playpro-repo</id>
             <url>https://maven.playpro.com</url>
@@ -43,53 +36,45 @@
     </repositories>
 
     <dependencies>
-        <!-- Spigot API 1.21 -->
+        <!-- PROVIDED -->
         <dependency>
             <groupId>org.spigotmc</groupId>
             <artifactId>spigot-api</artifactId>
             <version>1.21.1-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
-
-        <!-- AuthMe (Atsiunčia automatiškai iš CodeMC) -->
         <dependency>
             <groupId>fr.xephi</groupId>
             <artifactId>authme</artifactId>
             <version>5.6.0-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
-
-        <!-- LiteBans API (Atsiunčia automatiškai iš JitPack) -->
-        <!-- Tai saugiau nei naudoti pilną pluginą -->
         <dependency>
             <groupId>com.gitlab.ruany</groupId>
             <artifactId>LiteBansAPI</artifactId>
             <version>0.5.0</version>
             <scope>provided</scope>
         </dependency>
-
-        <!-- CoreProtect (Atsiunčia automatiškai iš PlayPro) -->
         <dependency>
             <groupId>net.coreprotect</groupId>
             <artifactId>coreprotect</artifactId>
-            <version>22.4</version> <!-- Versija tinkama 1.21 -->
+            <version>22.4</version>
             <scope>provided</scope>
         </dependency>
 
+        <!-- COMPILED (Bundled) -->
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
             <version>5.0.1</version>
             <scope>compile</scope>
         </dependency>
-        <!-- MySQL Driver -->
         <dependency>
             <groupId>mysql</groupId>
             <artifactId>mysql-connector-java</artifactId>
             <version>8.0.33</version>
             <scope>compile</scope>
         </dependency>
-        <!-- MariaDB Driver -->
         <dependency>
             <groupId>org.mariadb.jdbc</groupId>
             <artifactId>mariadb-java-client</artifactId>
@@ -99,6 +84,8 @@
     </dependencies>
 
     <build>
+        <!-- This forces the file name to be exactly "CMCLite 1.0.jar" -->
+        <finalName>CMCLite 1.0</finalName>
         <defaultGoal>clean package</defaultGoal>
         <resources>
             <resource>
@@ -107,7 +94,6 @@
             </resource>
         </resources>
         <plugins>
-            <!-- Compiler Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -118,20 +104,51 @@
                 </configuration>
             </plugin>
 
-            <!-- AntRun Plugin (Kopijuoja failą į serverį) -->
+            <!-- SHADE PLUGIN: Bundles dependencies -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <!-- Filter out license files to avoid warnings -->
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- ANTRUN: Deletes the duplicate "original-" file -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-antrun-plugin</artifactId>
                 <version>3.1.0</version>
                 <executions>
                     <execution>
-                        <phase>install</phase>
+                        <phase>package</phase>
                         <configuration>
                             <target>
-                                <!-- Pakeiskite kelią į savo serverio plugins aplanką -->
-                                <!-- Windows path su / veikia Java puikiai -->
-                                <copy file="${project.build.directory}/${project.build.finalName}.jar"
-                                      tofile="C:/Users/xxx/Desktop/Study/1.20.6 - 1.21.4 - 1.21.11/plugins/${project.build.finalName}.jar"/>
+                                <!-- 1. Copy the GOOD file to server -->
+                                <copy file="${project.build.directory}/CMCLite 1.0.jar"
+                                      tofile="C:/Users/bauza/Desktop/Study/1.20.6 - 1.21.4 - 1.21.11/plugins/CMCLite 1.0.jar"/>
+
+                                <!-- 2. Delete the BACKUP file created by Shade plugin -->
+                                <delete file="${project.build.directory}/original-CMCLite 1.0.jar"/>
                             </target>
                         </configuration>
                         <goals>

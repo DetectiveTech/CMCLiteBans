@@ -20,11 +20,11 @@ if_player_gives_to_low_punishment: "helpop Administratorius {admin} suteikė bau
 use-custom-database: false
 
 database:
-  host: "45.81.254.240"
-  port: "3306"
-  user: "rfcaldorij_lbCMC"
-  password: "ydJhcpS9kuwrDeG2nWjS"
-  database_name: "rfcaldorij_lbCMC"
+  host: "localhost"
+  port: "3308"
+  user: ""
+  password: ""
+  database_name: ""
   table_prefix: "litebans_"
 
 # --- NEW FEATURES ---
