@@ -1,7 +1,7 @@
 <project name="CMCLiteBans" default="Build">
 
     <!-- 1. Define where to put the plugin JAR -->
-    <property name="plugin.dir" value="\Users\bauza\OneDrive\Desktop\Study\1.20.6 - 1.21.4 - 1.21.11\plugins\"/>
+    <property name="plugin.dir" value="\Users\xxx\Desktop\Study\1.20.6 - 1.21.4 - 1.21.11\plugins\"/>
 
     <!-- 2. The main build target -->
     <target name="Build">
@@ -22,5 +22,6 @@
         <echo message=" Jar deployed to: ${plugin.dir}/${ant.project.name}.jar"/>
         <echo message="-------------------------------------------------"/>
     </target>
+
 
 </project>
