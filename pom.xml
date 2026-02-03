@@ -131,7 +131,7 @@
                                 <!-- Pakeiskite kelią į savo serverio plugins aplanką -->
                                 <!-- Windows path su / veikia Java puikiai -->
                                 <copy file="${project.build.directory}/${project.build.finalName}.jar"
-                                      tofile="C:/Users/bauza/Desktop/Study/1.20.6 - 1.21.4 - 1.21.11/plugins/${project.build.finalName}.jar"/>
+                                      tofile="C:/Users/xxx/Desktop/Study/1.20.6 - 1.21.4 - 1.21.11/plugins/${project.build.finalName}.jar"/>
                             </target>
                         </configuration>
                         <goals>
