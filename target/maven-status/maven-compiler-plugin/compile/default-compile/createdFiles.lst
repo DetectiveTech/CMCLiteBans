@@ -1,0 +1,16 @@
+com\LiteBansByCMC\managers\GuiManager$ConfirmSession.class
+com\LiteBansByCMC\managers\HistoryManager$HistoryEntry.class
+com\LiteBansByCMC\managers\DatabaseManager.class
+com\LiteBansByCMC\managers\HistoryManager.class
+com\LiteBansByCMC\managers\StatsManager.class
+com\LiteBansByCMC\managers\RollbackManager.class
+com\LiteBansByCMC\managers\DiscordManager.class
+com\LiteBansByCMC\managers\HistoryManager$PendingInfo.class
+com\LiteBansByCMC\utils\TimeUtils.class
+com\LiteBansByCMC\managers\PatikraManager.class
+com\LiteBansByCMC\BausmePlugin$1.class
+com\LiteBansByCMC\managers\GuiManager.class
+com\LiteBansByCMC\managers\PatikraManager$CheckSession.class
+com\LiteBansByCMC\managers\LocalLogManager.class
+com\LiteBansByCMC\managers\DatabaseManager$ResultHandler.class
+com\LiteBansByCMC\BausmePlugin.class
