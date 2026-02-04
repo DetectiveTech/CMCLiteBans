@@ -8,8 +8,8 @@ depend: [LiteBans]
 softdepend: [AuthMe, CoreProtect]
 commands:
   bausme:
-    description: Opens the punishment addon menu
-    usage: /bausme [reload]
+    description: Opens the punishment addon menu or manages history
+    usage: /bausme [reload | nuimti <type> <player>]
   patikra:
     description: Patikros (ScreenShare) sistema
     usage: /patikra <player> <discord>

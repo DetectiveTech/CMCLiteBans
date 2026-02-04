@@ -180,11 +180,16 @@ public class GuiManager implements Listener, InventoryHolder {
 
 	private String replacePlaceholders(String text, Player admin, String target) {
 		if (text == null) return "";
+
+		// Basic placeholders
 		text = text.replace("%admin%", admin.getName());
 		text = text.replace("%target%", target);
-		text = text.replace("%total%", String.valueOf(plugin.getStatsManager().getStat(admin.getName(), "total")));
-		text = text.replace("%bans%", String.valueOf(plugin.getStatsManager().getStat(admin.getName(), "ban")));
-		text = text.replace("%mutes%", String.valueOf(plugin.getStatsManager().getStat(admin.getName(), "mute")));
+
+		// NEW: Points Placeholder
+		int points = plugin.getStatsManager().getScore(admin.getName());
+		text = text.replace("%points%", String.valueOf(points));
+
+		// Reset days (Optional)
 		text = text.replace("%reset_days%", String.valueOf(plugin.getConfig().getInt("admin-stats.reset-days", 7)));
 
 		return ChatColor.translateAlternateColorCodes('&', text);

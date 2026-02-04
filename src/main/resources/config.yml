@@ -82,9 +82,7 @@ gui:
       name: "&6&l%admin%"
       lore:
         - "&7&m-----------------"
-        - "&7Viso nubausta: &e%total%"
-        - "&7Banai: &c%bans%"
-        - "&7Mutes: &b%mutes%"
+        - "&7Jūsų taškai: &e%points%"
         - "&7&m-----------------"
         - "&8Reset in: &f%reset_days%d"
 

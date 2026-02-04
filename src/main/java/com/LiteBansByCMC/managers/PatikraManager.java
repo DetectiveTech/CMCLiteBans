@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PatikraManager implements Listener {
 
@@ -30,6 +31,7 @@ public class PatikraManager implements Listener {
 			return;
 		}
 
+		// Enforce usage: /patikra <player> <discord/stop>
 		if (args.length < 2) {
 			sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.usage")));
 			return;
@@ -38,37 +40,47 @@ public class PatikraManager implements Listener {
 		String targetName = args[0];
 		Player target = Bukkit.getPlayer(targetName);
 
-		// --- STOP LOGIKA (Pakeista) ---
+		// --- STOP LOGIC (/patikra <nick> stop) ---
 		if (args[1].equalsIgnoreCase("stop")) {
+
+			// Case 1: Player is OFFLINE
 			if (target == null) {
-				// Jei atsijungęs
+				AtomicBoolean found = new AtomicBoolean(false);
+
+				// Search by name in active sessions
 				activeChecks.entrySet().removeIf(entry -> {
 					if (entry.getValue().playerName.equalsIgnoreCase(targetName)) {
-						entry.getValue().cancel();
+						entry.getValue().cancel(); // Stop timers
 						sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.stopped_admin").replace("{player}", targetName)));
-						return true;
+						found.set(true);
+						return true; // Remove from map
 					}
 					return false;
 				});
+
+				if (!found.get()) {
+					sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.not_checking")));
+				}
 				return;
 			}
 
+			// Case 2: Player is ONLINE
 			if (!activeChecks.containsKey(target.getUniqueId())) {
 				sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.not_checking")));
 				return;
 			}
 
-			// Sustabdome tik laikmatį (žinutes)
+			// Stop the check
 			stopCheck(target.getUniqueId());
 
 			sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.stopped_admin").replace("{player}", target.getName())));
 
-			// Žaidėjui pranešame, kad spam baigėsi, bet patikra vyksta toliau
+			// Inform the player
 			target.sendMessage(ChatColor.YELLOW + "Laikmatis sustabdytas. Vykdykite administratoriaus nurodymus Discord'e.");
 			return;
 		}
 
-		// --- START LOGIKA ---
+		// --- START LOGIC (/patikra <nick> <discord>) ---
 		if (target == null) {
 			sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.not_found")));
 			return;
@@ -79,6 +91,7 @@ public class PatikraManager implements Listener {
 			return;
 		}
 
+		// Combine arguments for Discord/Message text
 		StringBuilder sb = new StringBuilder();
 		for (int i = 1; i < args.length; i++) {
 			sb.append(args[i]).append(" ");
@@ -94,7 +107,7 @@ public class PatikraManager implements Listener {
 		CheckSession session = new CheckSession(p.getName(), text, duration);
 		activeChecks.put(p.getUniqueId(), session);
 
-		// 1. Iškart įkaliname (Jail)
+		// 1. Jail Immediately
 		executePunishment(p, "start-command");
 
 		int interval = plugin.getConfig().getInt("patikra.message-interval", 30);
@@ -102,7 +115,7 @@ public class PatikraManager implements Listener {
 		session.taskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, () -> {
 			session.timeLeft -= interval;
 
-			// 2. Jei laikas baigėsi -> BAN (Smart Punishment)
+			// 2. Time Expired -> BAN
 			if (session.timeLeft <= 0) {
 				executePunishment(p, "timeout-command");
 
@@ -115,7 +128,7 @@ public class PatikraManager implements Listener {
 				return;
 			}
 
-			// 3. Siunčiame priminimus
+			// 3. Send reminders
 			sendAlerts(p, text, session.timeLeft);
 
 		}, 0L, interval * 20L);
@@ -147,10 +160,10 @@ public class PatikraManager implements Listener {
 		if (cmdTemplate == null || cmdTemplate.isEmpty()) return;
 
 		if (cmdTemplate.equals("SMART_PUNISHMENT")) {
-			// Smart Ban pagal Cheatinimo taisyklę
+			// Smart Ban for Cheating (Console)
 			plugin.getDbManager().executeSmartPunishmentConsole(player.getName(), player.getUniqueId().toString(), "cheats_use");
 		} else {
-			// Paprasta komanda (Jail pradžioje)
+			// Standard Command (Jail)
 			Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmdTemplate.replace("{player}", player.getName()));
 		}
 	}
@@ -160,7 +173,7 @@ public class PatikraManager implements Listener {
 		if (activeChecks.containsKey(e.getPlayer().getUniqueId())) {
 			Player p = e.getPlayer();
 
-			// Smart Ban už atsijungimą
+			// Smart Ban for Logout
 			executePunishment(p, "logout-command");
 
 			String broadcast = plugin.getConfig().getString("patikra.messages.logout_broadcast");

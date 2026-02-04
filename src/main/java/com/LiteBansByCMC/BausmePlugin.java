@@ -14,6 +14,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.util.StringUtil;
 
 import java.util.*;
 
@@ -39,33 +40,60 @@ public class BausmePlugin extends JavaPlugin implements Listener {
 		loadManagers();
 		Bukkit.getPluginManager().registerEvents(this, this);
 
+		// --- COMMAND REGISTRATION ---
+
+		// 1. /bausme
 		if (getCommand("bausme") != null) {
-			Objects.requireNonNull(getCommand("bausme")).setExecutor(this);
+			getCommand("bausme").setExecutor(this);
+			getCommand("bausme").setTabCompleter(this);
 		}
+
+		// 2. /patikra
 		if (getCommand("patikra") != null) {
+			// We set the executor to THIS class, and handle it in onCommand below
 			getCommand("patikra").setExecutor(this);
+
+			// Define Tab Completer for /patikra specifically
 			getCommand("patikra").setTabCompleter((sender, command, alias, args) -> {
-				if (args.length == 2) {
-					List<String> discords = getConfig().getStringList("patikra_discords");
-					if (discords.isEmpty()) return null;
-					return discords;
+				List<String> completions = new ArrayList<>();
+
+				// Arg 1: Player Name
+				if (args.length == 1) {
+					for (Player p : Bukkit.getOnlinePlayers()) {
+						completions.add(p.getName());
+					}
+					return StringUtil.copyPartialMatches(args[0], completions, new ArrayList<>());
 				}
-				return null;
+
+				// Arg 2: "stop" OR Discord ID list
+				if (args.length == 2) {
+					completions.add("stop");
+					List<String> discords = getConfig().getStringList("patikra_discords");
+					if (discords != null) completions.addAll(discords);
+					return StringUtil.copyPartialMatches(args[1], completions, new ArrayList<>());
+				}
+
+				return Collections.emptyList();
 			});
 		}
 
-		Events.get().register(new Events.Listener() {
-			@Override
-			public void entryAdded(Entry entry) {
-				String executorName = entry.getExecutorName();
-				if (executorName == null || executorName.equals("Console")) return;
+		// --- LITEBANS EVENTS ---
+		try {
+			Events.get().register(new Events.Listener() {
+				@Override
+				public void entryAdded(Entry entry) {
+					String executorName = entry.getExecutorName();
+					if (executorName == null || executorName.equals("Console")) return;
 
-				Player admin = Bukkit.getPlayer(executorName);
-				if (admin != null) {
-					setCooldown(admin);
+					Player admin = Bukkit.getPlayer(executorName);
+					if (admin != null) {
+						setCooldown(admin);
+					}
 				}
-			}
-		});
+			});
+		} catch (NoClassDefFoundError | Exception e) {
+			getLogger().warning("LiteBans not found or API error. Cooldowns might not sync automatically.");
+		}
 
 		getLogger().info("CMCLiteBans enabled successfully!");
 	}
@@ -89,15 +117,55 @@ public class BausmePlugin extends JavaPlugin implements Listener {
 		this.patikraManager = new PatikraManager(this);
 	}
 
+	// --- TAB COMPLETION FOR /BAUSME ---
+	@Override
+	public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+		if (command.getName().equalsIgnoreCase("bausme")) {
+			List<String> completions = new ArrayList<>();
+
+			// Argument 1: [reload, nuimti, <player>]
+			if (args.length == 1) {
+				if (sender.hasPermission("bausme.admin")) {
+					completions.add("reload");
+					completions.add("nuimti");
+				}
+				// Also suggest players for the GUI opening
+				for (Player p : Bukkit.getOnlinePlayers()) {
+					completions.add(p.getName());
+				}
+				return StringUtil.copyPartialMatches(args[0], completions, new ArrayList<>());
+			}
+
+			// Argument 2: If Arg 1 is "nuimti" -> suggest [chat, cheat, gameplay, all]
+			if (args.length == 2 && args[0].equalsIgnoreCase("nuimti")) {
+				if (sender.hasPermission("bausme.admin")) {
+					List<String> types = Arrays.asList("chat", "cheat", "gameplay", "all");
+					return StringUtil.copyPartialMatches(args[1], types, new ArrayList<>());
+				}
+			}
+
+			// Argument 3: If Arg 1 is "nuimti" -> suggest <player> again
+			if (args.length == 3 && args[0].equalsIgnoreCase("nuimti")) {
+				return null; // Return null tells Bukkit to suggest online players automatically
+			}
+		}
+		return Collections.emptyList();
+	}
+
 	@Override
 	public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
 
+		// --- PATIKRA COMMAND ---
 		if (command.getName().equalsIgnoreCase("patikra")) {
-			patikraManager.handleCommand(sender, args);
+			if (patikraManager != null) {
+				patikraManager.handleCommand(sender, args);
+			} else {
+				sender.sendMessage(ChatColor.RED + "Error: PatikraManager not loaded.");
+			}
 			return true;
 		}
 
-		// --- ADMIN COMMAND: NUIMTI ---
+		// --- COMMAND: /BAUSME NUIMTI ---
 		if (args.length >= 3 && args[0].equalsIgnoreCase("nuimti")) {
 			if (!sender.hasPermission("bausme.admin")) {
 				sender.sendMessage(ChatColor.RED + "Neturite teisės (bausme.admin).");
@@ -113,7 +181,7 @@ public class BausmePlugin extends JavaPlugin implements Listener {
 			return true;
 		}
 
-		// --- ADMIN COMMAND: RELOAD ---
+		// --- COMMAND: /BAUSME RELOAD ---
 		if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
 			if (!sender.hasPermission("bausme.admin")) {
 				sender.sendMessage(ChatColor.RED + "Neturite teisės (bausme.admin).");
@@ -127,14 +195,13 @@ public class BausmePlugin extends JavaPlugin implements Listener {
 			return true;
 		}
 
-		// --- DEFAULT GUI OPENING ---
+		// --- DEFAULT: OPEN GUI ---
 		if (!(sender instanceof Player)) {
 			sender.sendMessage(ChatColor.RED + "GUI can only be opened by players.");
 			return true;
 		}
 		Player p = (Player) sender;
 
-		// Check if player has permission to USE the GUI (optional, but good practice)
 		if (!p.hasPermission("bausme.use") && !p.hasPermission("bausme.admin")) {
 			p.sendMessage(ChatColor.RED + "Neturite teisės naudoti šią komandą.");
 			return true;
@@ -148,12 +215,13 @@ public class BausmePlugin extends JavaPlugin implements Listener {
 			return true;
 		}
 
+		// No args -> Open menu for "No Target"
 		selectedTargets.remove(p.getUniqueId());
 		guiManager.openMainMenu(p);
 		return true;
 	}
 
-	// ... (rest of cooldown/event logic same as before)
+	// ... (Events and Resolve Logic same as before) ...
 	@EventHandler(priority = EventPriority.LOWEST)
 	public void onChat(AsyncPlayerChatEvent e) {
 		UUID uuid = e.getPlayer().getUniqueId();
@@ -267,7 +335,6 @@ public class BausmePlugin extends JavaPlugin implements Listener {
 		return (cooldowns.get(p.getUniqueId()) - System.currentTimeMillis()) / 1000;
 	}
 
-	// Getters
 	public GuiManager getGuiManager() { return guiManager; }
 	public StatsManager getStatsManager() { return statsManager; }
 	public DiscordManager getDiscordManager() { return discordManager; }
