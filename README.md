@@ -87,3 +87,10 @@ Contributions are welcome!
 ## 📬 Contact
 *   **Discord:** `detective_0`
 *   **Issues:** Please report bugs via the GitHub Issues tab.
+
+
+
+🤝 Huge thanks to MineAcademy and Matej Pacan, who teaches practically all the programs and provides live support at scheduled times.
+If you want to join the program and learn something new — or refresh your existing knowledge — I highly recommend joining the course.
+
+https://app.mineacademy.org/join/project-orion?u=ieqq
