@@ -75,7 +75,14 @@ public class HistoryManager implements Listener, InventoryHolder {
 		}
 		inv.setItem(22, actionItem); // Centrinis slotas
 
-		// 2. Istorijos įrašai
+		// 2. BACK BUTTON (NEW)
+		ItemStack backItem = new ItemStack(Material.ARROW);
+		ItemMeta bMeta = backItem.getItemMeta();
+		bMeta.setDisplayName(ChatColor.RED + "Grįžti atgal");
+		backItem.setItemMeta(bMeta);
+		inv.setItem(45, backItem); // Kairys apatinis kampas
+
+		// 3. Istorijos įrašai
 		int slot = 27; // Pradedam nuo 4-os eilutės
 		for (HistoryEntry entry : entries) {
 			if (slot >= 54) break;
@@ -84,6 +91,7 @@ public class HistoryManager implements Listener, InventoryHolder {
 			if (entry.type.equals("ban")) mat = Material.RED_WOOL;
 			else if (entry.type.equals("mute")) mat = Material.ORANGE_WOOL;
 			else if (entry.type.equals("warn")) mat = Material.YELLOW_WOOL;
+			else if (entry.type.equals("kick")) mat = Material.IRON_BOOTS;
 
 			ItemStack is = new ItemStack(mat);
 			ItemMeta meta = is.getItemMeta();
@@ -97,7 +105,7 @@ public class HistoryManager implements Listener, InventoryHolder {
 			inv.setItem(slot++, is);
 		}
 
-		// 3. Filler Glass
+		// 4. Filler Glass
 		ItemStack glass = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
 		ItemMeta gMeta = glass.getItemMeta();
 		gMeta.setDisplayName(" ");
@@ -128,6 +136,12 @@ public class HistoryManager implements Listener, InventoryHolder {
 		e.setCancelled(true);
 		if (!(e.getWhoClicked() instanceof Player)) return;
 		Player p = (Player) e.getWhoClicked();
+
+		// BACK BUTTON ACTION
+		if (e.getSlot() == 45) {
+			plugin.getGuiManager().openMainMenu(p);
+			return;
+		}
 
 		if (e.getSlot() == 22) {
 			PendingInfo info = pendingCommands.get(p.getUniqueId());

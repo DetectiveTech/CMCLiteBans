@@ -10,7 +10,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,7 +30,6 @@ public class PatikraManager implements Listener {
 			return;
 		}
 
-		// Enforce usage: /patikra <player> <discord/stop>
 		if (args.length < 2) {
 			sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.usage")));
 			return;
@@ -40,47 +38,35 @@ public class PatikraManager implements Listener {
 		String targetName = args[0];
 		Player target = Bukkit.getPlayer(targetName);
 
-		// --- STOP LOGIC (/patikra <nick> stop) ---
+		// --- STOP ---
 		if (args[1].equalsIgnoreCase("stop")) {
-
-			// Case 1: Player is OFFLINE
 			if (target == null) {
 				AtomicBoolean found = new AtomicBoolean(false);
-
-				// Search by name in active sessions
 				activeChecks.entrySet().removeIf(entry -> {
 					if (entry.getValue().playerName.equalsIgnoreCase(targetName)) {
-						entry.getValue().cancel(); // Stop timers
+						entry.getValue().cancel();
 						sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.stopped_admin").replace("{player}", targetName)));
 						found.set(true);
-						return true; // Remove from map
+						return true;
 					}
 					return false;
 				});
-
-				if (!found.get()) {
-					sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.not_checking")));
-				}
+				if (!found.get()) sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.not_checking")));
 				return;
 			}
 
-			// Case 2: Player is ONLINE
 			if (!activeChecks.containsKey(target.getUniqueId())) {
 				sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.not_checking")));
 				return;
 			}
 
-			// Stop the check
 			stopCheck(target.getUniqueId());
-
 			sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.stopped_admin").replace("{player}", target.getName())));
-
-			// Inform the player
-			target.sendMessage(ChatColor.YELLOW + "Laikmatis sustabdytas. Vykdykite administratoriaus nurodymus Discord'e.");
+			target.sendMessage(ChatColor.YELLOW + "Laikmatis sustabdytas.");
 			return;
 		}
 
-		// --- START LOGIC (/patikra <nick> <discord>) ---
+		// --- START ---
 		if (target == null) {
 			sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.not_found")));
 			return;
@@ -91,11 +77,8 @@ public class PatikraManager implements Listener {
 			return;
 		}
 
-		// Combine arguments for Discord/Message text
 		StringBuilder sb = new StringBuilder();
-		for (int i = 1; i < args.length; i++) {
-			sb.append(args[i]).append(" ");
-		}
+		for (int i = 1; i < args.length; i++) sb.append(args[i]).append(" ");
 		String discordText = sb.toString().trim();
 
 		startCheck(target, discordText);
@@ -107,7 +90,7 @@ public class PatikraManager implements Listener {
 		CheckSession session = new CheckSession(p.getName(), text, duration);
 		activeChecks.put(p.getUniqueId(), session);
 
-		// 1. Jail Immediately
+		// Vykdome komandą nedelsiant
 		executePunishment(p, "start-command");
 
 		int interval = plugin.getConfig().getInt("patikra.message-interval", 30);
@@ -115,20 +98,14 @@ public class PatikraManager implements Listener {
 		session.taskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, () -> {
 			session.timeLeft -= interval;
 
-			// 2. Time Expired -> BAN
 			if (session.timeLeft <= 0) {
 				executePunishment(p, "timeout-command");
-
 				String broadcast = plugin.getConfig().getString("patikra.messages.logout_broadcast");
-				if (broadcast != null) {
-					Bukkit.broadcastMessage(color(broadcast.replace("{player}", p.getName())));
-				}
-
+				if (broadcast != null) Bukkit.broadcastMessage(color(broadcast.replace("{player}", p.getName())));
 				stopCheck(p.getUniqueId());
 				return;
 			}
 
-			// 3. Send reminders
 			sendAlerts(p, text, session.timeLeft);
 
 		}, 0L, interval * 20L);
@@ -136,35 +113,39 @@ public class PatikraManager implements Listener {
 
 	private void stopCheck(UUID uuid) {
 		CheckSession session = activeChecks.remove(uuid);
-		if (session != null) {
-			session.cancel();
-		}
+		if (session != null) session.cancel();
 	}
 
 	private void sendAlerts(Player p, String text, int secondsLeft) {
 		String timeStr = String.format("%d:%02d", secondsLeft / 60, secondsLeft % 60);
-
 		String title = color(plugin.getConfig().getString("patikra.messages.player_title"));
 		String sub = color(plugin.getConfig().getString("patikra.messages.player_subtitle").replace("{text}", text));
 		p.sendTitle(title, sub, 0, 100, 0);
 
-		List<String> lines = plugin.getConfig().getStringList("patikra.messages.player_chat");
-		for (String line : lines) {
+		for (String line : plugin.getConfig().getStringList("patikra.messages.player_chat")) {
 			p.sendMessage(color(line.replace("{time}", timeStr).replace("{text}", text)));
 		}
 	}
 
 	private void executePunishment(Player player, String configKey) {
 		String cmdTemplate = plugin.getConfig().getString("patikra." + configKey);
-
 		if (cmdTemplate == null || cmdTemplate.isEmpty()) return;
 
 		if (cmdTemplate.equals("SMART_PUNISHMENT")) {
-			// Smart Ban for Cheating (Console)
 			plugin.getDbManager().executeSmartPunishmentConsole(player.getName(), player.getUniqueId().toString(), "cheats_use");
 		} else {
-			// Standard Command (Jail)
-			Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmdTemplate.replace("{player}", player.getName()));
+			// FORCE ESSENTIALS PREFIX if command starts with jail
+			String finalCmd = cmdTemplate.replace("{player}", player.getName());
+			if (finalCmd.startsWith("jail ")) {
+				finalCmd = "essentials:" + finalCmd;
+			}
+
+			String exec = finalCmd;
+			plugin.getLogger().info("[Patikra DEBUG] Executing: " + exec); // DEBUG LOG
+
+			Bukkit.getScheduler().runTask(plugin, () -> {
+				Bukkit.dispatchCommand(Bukkit.getConsoleSender(), exec);
+			});
 		}
 	}
 
@@ -172,15 +153,9 @@ public class PatikraManager implements Listener {
 	public void onQuit(PlayerQuitEvent e) {
 		if (activeChecks.containsKey(e.getPlayer().getUniqueId())) {
 			Player p = e.getPlayer();
-
-			// Smart Ban for Logout
 			executePunishment(p, "logout-command");
-
 			String broadcast = plugin.getConfig().getString("patikra.messages.logout_broadcast");
-			if (broadcast != null) {
-				Bukkit.broadcastMessage(color(broadcast.replace("{player}", p.getName())));
-			}
-
+			if (broadcast != null) Bukkit.broadcastMessage(color(broadcast.replace("{player}", p.getName())));
 			stopCheck(p.getUniqueId());
 		}
 	}
@@ -192,17 +167,7 @@ public class PatikraManager implements Listener {
 		String text;
 		int timeLeft;
 		int taskId = -1;
-
-		public CheckSession(String name, String text, int time) {
-			this.playerName = name;
-			this.text = text;
-			this.timeLeft = time;
-		}
-
-		public void cancel() {
-			if (taskId != -1) {
-				Bukkit.getScheduler().cancelTask(taskId);
-			}
-		}
+		public CheckSession(String name, String text, int time) { this.playerName = name; this.text = text; this.timeLeft = time; }
+		public void cancel() { if (taskId != -1) Bukkit.getScheduler().cancelTask(taskId); }
 	}
 }

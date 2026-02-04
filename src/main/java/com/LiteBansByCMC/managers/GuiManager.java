@@ -14,6 +14,7 @@ import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
 
@@ -32,9 +33,12 @@ public class GuiManager implements Listener, InventoryHolder {
 	@Override
 	public Inventory getInventory() { return null; }
 
+	// ... (MainMenu, SubMenu, openConfirmMenu, Evidence methods - UNCHANGED) ...
+	// COPY PASTE THESE METHODS FROM PREVIOUS VERSION IF NEEDED, OR KEEP THEM AS IS.
+	// THEY ARE STANDARD AND WORK. I WILL FOCUS ON THE EXECUTION LOGIC BELOW.
+
 	public void openMainMenu(Player admin) {
 		openGui(admin, "gui", "MAIN");
-
 		Inventory inv = admin.getOpenInventory().getTopInventory();
 		if (inv.getHolder() == this && "MAIN".equals(plugin.getCurrentMenu(admin.getUniqueId()))) {
 			boolean isSilent = silentMode.getOrDefault(admin.getUniqueId(), false);
@@ -57,7 +61,6 @@ public class GuiManager implements Listener, InventoryHolder {
 			admin.closeInventory();
 			return;
 		}
-
 		sessions.put(admin.getUniqueId(), new ConfirmSession(command, targetName, reason, attemptedLevel, maxLevel));
 		plugin.setCurrentMenu(admin.getUniqueId(), "CONFIRM");
 
@@ -71,11 +74,7 @@ public class GuiManager implements Listener, InventoryHolder {
 		lore.add(ChatColor.GRAY + "Taikinys: " + ChatColor.YELLOW + targetName);
 		lore.add(ChatColor.GRAY + "Bausmė: " + ChatColor.RED + command.replace(";", " + "));
 		if (isSilent) lore.add(ChatColor.AQUA + "Silent Mode (-s) Įjungtas");
-
-		if (attemptedLevel < maxLevel) {
-			lore.add(ChatColor.GOLD + "Dėmesio: Jūsų limitas " + attemptedLevel + " lygis (reikia " + maxLevel + ").");
-		}
-
+		if (attemptedLevel < maxLevel) lore.add(ChatColor.GOLD + "Dėmesio: Jūsų limitas " + attemptedLevel + " lygis (reikia " + maxLevel + ").");
 		lore.add("");
 		lore.add(ChatColor.YELLOW + "Spausk, kad nubaustum!");
 		meta.setLore(lore);
@@ -103,14 +102,11 @@ public class GuiManager implements Listener, InventoryHolder {
 		admin.openInventory(inv);
 	}
 
-	public boolean isAwaitingEvidence(UUID uuid) {
-		return awaitingEvidence.getOrDefault(uuid, false);
-	}
+	public boolean isAwaitingEvidence(UUID uuid) { return awaitingEvidence.getOrDefault(uuid, false); }
 
 	public void appendEvidence(Player admin, String link) {
 		awaitingEvidence.remove(admin.getUniqueId());
 		ConfirmSession session = sessions.get(admin.getUniqueId());
-
 		if (session != null) {
 			String newCmd = session.command + " | Įrodymas: " + link;
 			openConfirmMenu(admin, newCmd, session.targetName, session.actionKey, session.attemptedLevel, session.maxLevel);
@@ -125,22 +121,17 @@ public class GuiManager implements Listener, InventoryHolder {
 			admin.sendMessage(ChatColor.RED + "Klaida: Konfigūracija nerasta: " + configPath);
 			return;
 		}
-
 		int size = section.getInt("size", 27);
 		String title = ChatColor.translateAlternateColorCodes('&', section.getString("title", "Menu"));
-
 		Inventory inv = Bukkit.createInventory(this, size, title);
 		String target = plugin.getSelectedTarget(admin.getUniqueId());
-
 		ConfigurationSection items = section.getConfigurationSection("items");
 		if (items != null) {
 			for (String key : items.getKeys(false)) {
 				ConfigurationSection itemSec = items.getConfigurationSection(key);
 				if (itemSec == null) continue;
-
 				int slot = itemSec.getInt("slot", -1);
 				ItemStack is = createItem(admin, itemSec, target);
-
 				if (key.equals("glass_filler")) {
 					for (int i = 0; i < size; i++) if (inv.getItem(i) == null) inv.setItem(i, is);
 				} else if (slot >= 0 && slot < size) {
@@ -148,7 +139,6 @@ public class GuiManager implements Listener, InventoryHolder {
 				}
 			}
 		}
-
 		plugin.setCurrentMenu(admin.getUniqueId(), menuId);
 		admin.openInventory(inv);
 	}
@@ -157,41 +147,30 @@ public class GuiManager implements Listener, InventoryHolder {
 		String matName = sec.getString("material", "STONE");
 		Material mat = Material.getMaterial(matName);
 		if (mat == null) mat = Material.STONE;
-
 		ItemStack item = new ItemStack(mat);
 		ItemMeta meta = item.getItemMeta();
-
 		if (sec.getName().equals("select_player") && meta instanceof SkullMeta && !target.equals("Niekas")) {
 			((SkullMeta) meta).setOwner(target);
 		} else if (sec.getName().equals("admin_head") && meta instanceof SkullMeta) {
 			((SkullMeta) meta).setOwningPlayer(admin);
 		}
-
 		if (sec.contains("name")) meta.setDisplayName(replacePlaceholders(sec.getString("name"), admin, target));
 		if (sec.contains("lore")) {
 			List<String> lore = new ArrayList<>();
 			for (String line : sec.getStringList("lore")) lore.add(replacePlaceholders(line, admin, target));
 			meta.setLore(lore);
 		}
-
 		item.setItemMeta(meta);
 		return item;
 	}
 
 	private String replacePlaceholders(String text, Player admin, String target) {
 		if (text == null) return "";
-
-		// Basic placeholders
 		text = text.replace("%admin%", admin.getName());
 		text = text.replace("%target%", target);
-
-		// NEW: Points Placeholder
 		int points = plugin.getStatsManager().getScore(admin.getName());
 		text = text.replace("%points%", String.valueOf(points));
-
-		// Reset days (Optional)
 		text = text.replace("%reset_days%", String.valueOf(plugin.getConfig().getInt("admin-stats.reset-days", 7)));
-
 		return ChatColor.translateAlternateColorCodes('&', text);
 	}
 
@@ -199,7 +178,6 @@ public class GuiManager implements Listener, InventoryHolder {
 	public void onClick(InventoryClickEvent e) {
 		if (!(e.getWhoClicked() instanceof Player)) return;
 		Player admin = (Player) e.getWhoClicked();
-
 		if (e.getInventory().getHolder() != this) return;
 		e.setCancelled(true);
 		if (e.getCurrentItem() == null) return;
@@ -227,54 +205,47 @@ public class GuiManager implements Listener, InventoryHolder {
 					String fullCmd = session.command;
 					String[] commands = fullCmd.split(";");
 					boolean isSilent = silentMode.getOrDefault(admin.getUniqueId(), false);
-					boolean anySuccess = false;
 
 					String preCommand = plugin.getConfig().getString("run_command_before_ban");
 					if (preCommand != null && !preCommand.isEmpty()) {
 						Bukkit.dispatchCommand(Bukkit.getConsoleSender(), preCommand.replace("{player}", session.targetName));
 					}
 
-					for (String singleCmd : commands) {
-						singleCmd = singleCmd.trim();
-						if (isSilent) {
-							String[] parts = singleCmd.split(" ", 2);
-							singleCmd = parts[0] + " -s " + (parts.length > 1 ? parts[1] : "");
-						}
+					// SPLIT COMMANDS: IMMEDIATE vs DELAYED (Kicks/Bans)
+					List<String> immediateCommands = new ArrayList<>();
+					List<String> delayedCommands = new ArrayList<>();
 
-						String type = singleCmd.split(" ")[0].replace("ip", "");
-						if (admin.hasPermission("litebans." + type) || admin.isOp()) {
-							admin.performCommand(singleCmd);
-							anySuccess = true;
+					for (String cmd : commands) {
+						String lower = cmd.trim().toLowerCase();
+						// Kick ir Ban eina į galą
+						if (lower.startsWith("kick") || lower.startsWith("ban") || lower.startsWith("tempban") || lower.startsWith("ipban")) {
+							delayedCommands.add(cmd.trim());
 						} else {
-							admin.sendMessage(ChatColor.RED + "Klaida: Jums trūksta teisės įvykdyti '" + type + "'.");
+							immediateCommands.add(cmd.trim());
 						}
 					}
 
-					if (anySuccess) {
-						admin.sendMessage(ChatColor.GREEN + "Komanda išsiųsta (laukiamas patvirtinimas).");
+					// 1. EXECUTE IMMEDIATE (Jail, Mute)
+					boolean loggedHistory = false;
+					for (String cmd : immediateCommands) {
+						loggedHistory = executeSingleCommand(admin, cmd, fullCmd, session.targetName, isSilent, loggedHistory);
+					}
 
-						// --- FIX: DO NOT SET COOLDOWN HERE ---
-						// plugin.setCooldown(admin); <-- REMOVED
-						// We will set cooldown ONLY when LiteBans successfully adds the entry.
-
-						// We still assume logs for now, but strictly speaking, these should also move to an event listener
-						// to be 100% accurate. For now, leaving them here is acceptable as "Command Sent Logs".
-						plugin.getLocalLogManager().logPunishment(admin.getName(), session.targetName, fullCmd, session.actionKey);
-						plugin.getDiscordManager().sendLog(admin.getName(), session.targetName, fullCmd, session.actionKey);
-						plugin.getRollbackManager().checkAndRollback(commands[0], session.targetName);
-
-						if (session.attemptedLevel < session.maxLevel) {
-							String msg = plugin.getConfig().getString("if_player_gives_to_low_punishment");
-							if (msg != null && !msg.isEmpty()) {
-								msg = msg.replace("{admin}", admin.getName())
-										.replace("{target}", session.targetName)
-										.replace("{level}", String.valueOf(session.attemptedLevel))
-										.replace("{req_level}", String.valueOf(session.maxLevel));
-								Bukkit.dispatchCommand(Bukkit.getConsoleSender(), msg);
+					// 2. SCHEDULE DELAYED (Kick, Ban) - 40 TICKS (2 SECONDS)
+					if (!delayedCommands.isEmpty()) {
+						final boolean finalLogged = loggedHistory;
+						new BukkitRunnable() {
+							boolean innerLogged = finalLogged;
+							@Override
+							public void run() {
+								for (String cmd : delayedCommands) {
+									innerLogged = executeSingleCommand(admin, cmd, fullCmd, session.targetName, isSilent, innerLogged);
+								}
+								finishSession(admin, session, fullCmd, commands);
 							}
-						}
+						}.runTaskLater(plugin, 40L); // INCREASED TO 40 TICKS
 					} else {
-						admin.sendMessage(ChatColor.RED + "Bausmė nepavyko - cooldown nesuteiktas.");
+						finishSession(admin, session, fullCmd, commands);
 					}
 				}
 			} else if (e.getSlot() == 13) {
@@ -289,6 +260,7 @@ public class GuiManager implements Listener, InventoryHolder {
 			return;
 		}
 
+		// Navigation logic
 		String configPath = "MAIN".equals(menuId) ? "gui.items" : "sub_menus." + menuId + ".items";
 		ConfigurationSection items = plugin.getConfig().getConfigurationSection(configPath);
 		if (items == null) return;
@@ -322,6 +294,79 @@ public class GuiManager implements Listener, InventoryHolder {
 				}
 			}
 		}
+	}
+
+	private boolean executeSingleCommand(Player admin, String singleCmd, String fullCmd, String targetName, boolean isSilent, boolean loggedHistory) {
+		if (singleCmd.isEmpty()) return loggedHistory;
+
+		if (isSilent) {
+			String[] parts = singleCmd.split(" ", 2);
+			singleCmd = parts[0] + " -s " + (parts.length > 1 ? parts[1] : "");
+		}
+
+		String commandType = singleCmd.split(" ")[0].replace("ip", "");
+
+		// FORCE ESSENTIALS:JAIL if just "jail"
+		if (commandType.equalsIgnoreCase("jail") && !singleCmd.contains("litebans:")) {
+			if (!singleCmd.startsWith("essentials:")) {
+				singleCmd = "essentials:" + singleCmd;
+			}
+		}
+
+		boolean hasPerm = admin.hasPermission("litebans." + commandType)
+				|| admin.hasPermission("essentials." + commandType)
+				|| admin.hasPermission("bausme.admin")
+				|| admin.isOp()
+				|| commandType.equalsIgnoreCase("msg");
+
+		if (hasPerm) {
+			admin.performCommand(singleCmd);
+
+			if (!loggedHistory && (commandType.equalsIgnoreCase("jail") || commandType.equalsIgnoreCase("kick"))) {
+				String reasonToLog = extractReason(fullCmd);
+				if (reasonToLog == null) reasonToLog = extractReason(singleCmd);
+				if (reasonToLog == null) reasonToLog = "Manual Punishment";
+
+				plugin.getDbManager().logSilentHistory(admin.getName(), admin.getUniqueId().toString(), targetName, reasonToLog + " #SILENT");
+				return true;
+			}
+		} else {
+			admin.sendMessage(ChatColor.RED + "Klaida: Jums trūksta teisės įvykdyti '" + commandType + "'.");
+		}
+		return loggedHistory;
+	}
+
+	private void finishSession(Player admin, ConfirmSession session, String fullCmd, String[] commands) {
+		plugin.getLocalLogManager().logPunishment(admin.getName(), session.targetName, fullCmd, session.actionKey);
+		plugin.getDiscordManager().sendLog(admin.getName(), session.targetName, fullCmd, session.actionKey);
+		plugin.getRollbackManager().checkAndRollback(commands[0], session.targetName);
+
+		if (session.attemptedLevel < session.maxLevel) {
+			String msg = plugin.getConfig().getString("if_player_gives_to_low_punishment");
+			if (msg != null && !msg.isEmpty()) {
+				msg = msg.replace("{admin}", admin.getName())
+						.replace("{target}", session.targetName)
+						.replace("{level}", String.valueOf(session.attemptedLevel))
+						.replace("{req_level}", String.valueOf(session.maxLevel));
+				Bukkit.dispatchCommand(Bukkit.getConsoleSender(), msg);
+			}
+		}
+		admin.sendMessage(ChatColor.GREEN + "Bausmės įvykdytos.");
+	}
+
+	private String extractReason(String cmd) {
+		if (cmd.contains("#")) {
+			String[] parts = cmd.split(" ");
+			if (parts.length > 1) {
+				StringBuilder sb = new StringBuilder();
+				for(int i=1; i<parts.length; i++) {
+					sb.append(parts[i]).append(" ");
+				}
+				String result = sb.toString().trim();
+				if(result.contains("#")) return result;
+			}
+		}
+		return null;
 	}
 
 	private static class ConfirmSession {

@@ -51,8 +51,10 @@ public class StatsManager implements Listener {
 			initFile();
 		}
 
-		// 1. Check immediately on startup
-		checkAutoReset();
+		// --- PATAISYMAS ČIA ---
+		// 1. Check immediately on startup (ASYNC to avoid blocking main thread)
+		// Anksčiau buvo tiesioginis kvietimas checkAutoReset(), kuris sukeldavo klaidą.
+		Bukkit.getScheduler().runTaskAsynchronously(plugin, this::checkAutoReset);
 
 		// 2. CHECK EVERY HOUR (Automatic 24/7 support)
 		// This runs asynchronously, so it will NOT affect TPS.

@@ -16,13 +16,23 @@ public class RollbackManager {
 
 	public RollbackManager(BausmePlugin plugin) {
 		this.plugin = plugin;
-		hookCoreProtect();
+		// SVARBU: Tikriname ar CoreProtect yra serveryje PRIEŠ kviesdami metodą,
+		// kuriame naudojama CoreProtect klasė. Tai apsaugo nuo NoClassDefFoundError.
+		if (Bukkit.getPluginManager().getPlugin("CoreProtect") != null) {
+			try {
+				hookCoreProtect();
+			} catch (NoClassDefFoundError | Exception e) {
+				plugin.getLogger().warning("Nepavyko prisijungti prie CoreProtect API: " + e.getMessage());
+			}
+		}
 	}
 
 	private void hookCoreProtect() {
 		Plugin cp = Bukkit.getPluginManager().getPlugin("CoreProtect");
-		if (cp instanceof CoreProtect) {
+		// Dvigubas patikrinimas ir 'instanceof' naudojimas
+		if (cp != null && cp.isEnabled() && cp instanceof CoreProtect) {
 			this.cpApi = ((CoreProtect) cp).getAPI();
+			plugin.getLogger().info("Sėkmingai prisijungta prie CoreProtect!");
 		}
 	}
 
@@ -45,7 +55,11 @@ public class RollbackManager {
 
 			// (user, time, radius, action_list, block_list, exclude_list, table, location)
 			// Time: seconds. 86400 = 24h
-			cpApi.performRollback(86400, users, null, null, null, action, 0, null);
+			try {
+				cpApi.performRollback(86400, users, null, null, null, action, 0, null);
+			} catch (Exception e) {
+				plugin.getLogger().warning("Klaida atliekant Rollback: " + e.getMessage());
+			}
 		}
 	}
 }

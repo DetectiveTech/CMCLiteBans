@@ -109,11 +109,101 @@ public class DatabaseManager {
 		return prefix + table.replace("{", "").replace("}", "");
 	}
 
-	// --- NEW METHOD: RESET HISTORY (FIXED) ---
+	private String cleanReason(String reason) {
+		if (reason == null) return "Unknown";
+
+		String clean = reason;
+		boolean wasReset = false;
+
+		if (clean.contains("OFF-") || clean.contains("[RESET]")) {
+			wasReset = true;
+		}
+
+		clean = clean.replaceAll("\\[RESET.*?\\]", "")
+				.replaceAll("OFF-", "")
+				.replaceAll("\\[.*?\\]", "")
+				.trim();
+
+		if (clean.isEmpty()) return reason;
+
+		if (wasReset) {
+			return ChatColor.STRIKETHROUGH + clean + ChatColor.RESET + ChatColor.GRAY + " (Anuliuota)";
+		}
+		return clean;
+	}
+
+	// --- NEW: LOG SILENTLY DIRECTLY TO SQL ---
+	public void logSilentHistory(String adminName, String adminUUID, String targetName, String reason) {
+		plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+			try {
+				AtomicReference<String> tUuid = new AtomicReference<>(null);
+				AtomicReference<String> tIp = new AtomicReference<>(null);
+
+				String historyTable = getTable("history");
+				executeQuery("SELECT uuid, ip FROM " + historyTable + " WHERE name=? ORDER BY date DESC LIMIT 1", rs -> {
+					if (rs.next()) {
+						tUuid.set(rs.getString("uuid"));
+						tIp.set(rs.getString("ip"));
+					}
+				}, targetName);
+
+				String targetUUID = tUuid.get();
+				String targetIP = tIp.get();
+
+				if (targetUUID == null) {
+					return;
+				}
+
+				// FIX: Added 'ipban' column (set to 0/false)
+				String warningsTable = getTable("warnings");
+				String insertQuery = "INSERT INTO " + warningsTable +
+						" (uuid, ip, reason, banned_by_uuid, banned_by_name, time, until, active, silent, ipban) " +
+						"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+				long now = System.currentTimeMillis();
+
+				if (useCustomDb && dataSource != null) {
+					try (Connection conn = dataSource.getConnection();
+						 PreparedStatement st = conn.prepareStatement(insertQuery)) {
+						st.setString(1, targetUUID);
+						st.setString(2, targetIP);
+						st.setString(3, reason);
+						st.setString(4, adminUUID);
+						st.setString(5, adminName);
+						st.setLong(6, now);
+						st.setLong(7, 0);
+						st.setInt(8, 1);  // active
+						st.setInt(9, 1);  // silent = true
+						st.setInt(10, 0); // ipban = false (FIX HERE)
+						st.executeUpdate();
+					}
+				} else {
+					try (PreparedStatement st = Database.get().prepareStatement(insertQuery)) {
+						st.setString(1, targetUUID);
+						st.setString(2, targetIP);
+						st.setString(3, reason);
+						st.setString(4, adminUUID);
+						st.setString(5, adminName);
+						st.setLong(6, now);
+						st.setLong(7, 0);
+						st.setInt(8, 1);
+						st.setInt(9, 1); // silent = true
+						st.setInt(10, 0); // ipban = false (FIX HERE)
+						st.executeUpdate();
+					}
+				}
+
+				plugin.getLogger().info("Silently logged punishment for " + targetName + " into DB.");
+
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		});
+	}
+
+	// --- RESET HISTORY ---
 	public void resetHistory(CommandSender sender, String targetName, String type) {
 		try {
-			// 1. Get UUID and IP
-			String uuid = null;
 			AtomicReference<String> uuidRef = new AtomicReference<>(null);
 			AtomicReference<String> ipRef = new AtomicReference<>(null);
 
@@ -125,7 +215,7 @@ public class DatabaseManager {
 				}
 			}, targetName);
 
-			uuid = uuidRef.get();
+			String uuid = uuidRef.get();
 			String ip = ipRef.get();
 
 			if (uuid == null) {
@@ -133,66 +223,42 @@ public class DatabaseManager {
 				return;
 			}
 
-			// 2. Determine tags
-			List<String> tagsToReset = new ArrayList<>();
-
-			if (type.equals("all")) {
-				tagsToReset.add("#");
-			} else if (type.equals("chat")) {
-				for(int i=100; i<200; i++) tagsToReset.add("#" + i);
-			} else if (type.equals("gameplay") || type.equals("warps")) {
-				for(int i=200; i<300; i++) tagsToReset.add("#" + i);
-			} else if (type.equals("cheat") || type.equals("cheats")) {
-				for(int i=300; i<400; i++) tagsToReset.add("#" + i);
+			String whereClause;
+			if (type.equalsIgnoreCase("all")) {
+				whereClause = "reason LIKE '%#%'";
+			} else if (type.equalsIgnoreCase("chat")) {
+				whereClause = "reason REGEXP '#1[0-9][0-9]'";
+			} else if (type.equalsIgnoreCase("gameplay") || type.equalsIgnoreCase("warps")) {
+				whereClause = "reason REGEXP '#2[0-9][0-9]'";
+			} else if (type.equalsIgnoreCase("cheat") || type.equalsIgnoreCase("cheats")) {
+				whereClause = "reason REGEXP '#3[0-9][0-9]'";
 			} else {
 				sender.sendMessage(ChatColor.RED + "Nežinomas tipas. Naudokite: chat, gameplay, cheat, all");
 				return;
 			}
 
-			// 3. Execute Updates (FIXED LOGIC)
 			int totalChanges = 0;
-			String[] tables = {"bans", "mutes", "warnings"};
+			String[] tables = {"bans", "mutes", "warnings", "kicks"};
 
 			for (String rawTable : tables) {
 				String tableName = getTable(rawTable);
 
-				if (type.equals("all")) {
-					String query = "UPDATE " + tableName + " SET reason = REPLACE(reason, '#', '[RESET]#') " +
-							"WHERE (uuid=? OR ip=?) AND reason LIKE '%#%' AND reason NOT LIKE '%[RESET]%'";
+				String query = "UPDATE " + tableName + " " +
+						"SET reason = REPLACE(reason, '#', 'OFF-') " +
+						"WHERE (uuid=? OR ip=?) AND " + whereClause + " AND reason NOT LIKE '%OFF-%'";
 
-					// PATAISYMAS: Naudojame Database.get().prepareStatement() tiesiogiai
-					try (PreparedStatement st = (useCustomDb && dataSource != null)
-							? dataSource.getConnection().prepareStatement(query)
-							: Database.get().prepareStatement(query)) {
+				try (PreparedStatement st = (useCustomDb && dataSource != null)
+						? dataSource.getConnection().prepareStatement(query)
+						: Database.get().prepareStatement(query)) {
 
-						st.setString(1, uuid);
-						st.setString(2, (ip != null ? ip : uuid));
-						totalChanges += st.executeUpdate();
-					}
-				} else {
-					for (String tag : tagsToReset) {
-						String query = "UPDATE " + tableName + " SET reason = REPLACE(reason, ?, ?) " +
-								"WHERE (uuid=? OR ip=?) AND reason LIKE ?";
-
-						// PATAISYMAS: Naudojame Database.get().prepareStatement() tiesiogiai
-						try (PreparedStatement st = (useCustomDb && dataSource != null)
-								? dataSource.getConnection().prepareStatement(query)
-								: Database.get().prepareStatement(query)) {
-
-							st.setString(1, tag);
-							st.setString(2, "[RESET-" + tag + "]");
-							st.setString(3, uuid);
-							st.setString(4, (ip != null ? ip : uuid));
-							st.setString(5, "%" + tag + "%");
-
-							totalChanges += st.executeUpdate();
-						}
-					}
+					st.setString(1, uuid);
+					st.setString(2, (ip != null ? ip : uuid));
+					totalChanges += st.executeUpdate();
 				}
 			}
 
-			sender.sendMessage(ChatColor.GREEN + "Sėkmingai anuliuota " + totalChanges + " įrašų žaidėjui " + targetName + " (ir jo IP).");
-			plugin.getLogger().info("Admin " + sender.getName() + " reset history for " + targetName + " (Type: " + type + ")");
+			sender.sendMessage(ChatColor.GREEN + "Sėkmingai anuliuota " + totalChanges + " įrašų žaidėjui " + targetName + " (" + type + ").");
+			plugin.getLogger().info("Admin " + sender.getName() + " reset history for " + targetName + " (Type: " + type + ", Count: " + totalChanges + ")");
 
 		} catch (SQLException e) {
 			e.printStackTrace();
@@ -200,8 +266,7 @@ public class DatabaseManager {
 		}
 	}
 
-	// --- MAIN LOGIC (UNCHANGED) ---
-
+	// --- ALTS CHECK ---
 	public void checkAlts(Player admin, String targetName, String targetUUID) {
 		if (!plugin.getConfig().getBoolean("alts.check-on-select", true)) return;
 
@@ -251,31 +316,8 @@ public class DatabaseManager {
 		}, uuid);
 		String ip = targetIP.get();
 
-		java.util.concurrent.atomic.AtomicBoolean hasRecentBan = new java.util.concurrent.atomic.AtomicBoolean(false);
-		java.util.concurrent.atomic.AtomicLong banTime = new java.util.concurrent.atomic.AtomicLong(0);
-
-		if (reasonFilter != null) {
-			String bansTable = getTable("bans");
-			String query = "SELECT time FROM " + bansTable + " WHERE (uuid=? OR ip=?) AND reason LIKE ? ORDER BY time DESC LIMIT 1";
-			executeQuery(query, rs -> {
-				if (rs.next()) {
-					hasRecentBan.set(true);
-					banTime.set(rs.getLong("time"));
-				}
-			}, uuid, (ip != null ? ip : uuid), "%" + reasonFilter + "%");
-		}
-
-		long minTime;
-		ZoneId zone = ZoneId.of("Europe/Vilnius");
-		ZonedDateTime now = ZonedDateTime.now(zone);
-		long startOfMonth = now.with(TemporalAdjusters.firstDayOfMonth()).withHour(0).withMinute(0).withSecond(0).toInstant().toEpochMilli();
-
-		if (hasRecentBan.get() && banTime.get() >= startOfMonth) {
-			minTime = startOfMonth;
-		} else {
-			String historyPeriod = plugin.getConfig().getString("history-filter.bans", "30d");
-			minTime = System.currentTimeMillis() - TimeUtils.parseTime(historyPeriod);
-		}
+		// Check Time
+		long minTime = System.currentTimeMillis() - (90L * 24 * 60 * 60 * 1000);
 
 		List<HistoryManager.HistoryEntry> entries = new ArrayList<>();
 
@@ -284,6 +326,7 @@ public class DatabaseManager {
 			fetchEntries(entries, "mutes", "mute", uuid, ip, minTime, filter);
 			fetchEntries(entries, "bans", "ban", uuid, ip, minTime, filter);
 			fetchEntries(entries, "warnings", "warn", uuid, ip, minTime, filter);
+			fetchEntries(entries, "kicks", "kick", uuid, ip, minTime, filter);
 		}
 
 		entries.sort((a, b) -> Long.compare(b.time, a.time));
@@ -308,16 +351,33 @@ public class DatabaseManager {
 
 	private void fetchEntries(List<HistoryManager.HistoryEntry> entries, String rawTableName, String type, String uuid, String ip, long minTime, String filter) {
 		String table = getTable(rawTableName);
-		String query = "SELECT time, until, reason, banned_by_name FROM " + table + " WHERE (uuid=? OR ip=?) AND time > ? AND reason LIKE ?";
+		boolean hasUntil = !rawTableName.equals("kicks") && !rawTableName.equals("warnings");
+
+		String query;
+		if (hasUntil) {
+			query = "SELECT time, until, reason, banned_by_name FROM " + table + " WHERE (uuid=? OR ip=?) AND time > ? AND reason LIKE ?";
+		} else {
+			query = "SELECT time, reason, banned_by_name FROM " + table + " WHERE (uuid=? OR ip=?) AND time > ? AND reason LIKE ?";
+		}
 
 		executeQuery(query, rs -> {
 			while (rs.next()) {
+				String rawReason = rs.getString("reason");
+
+				if (rawReason == null || rawReason.contains("OFF-") || rawReason.contains("[RESET]")) {
+					continue;
+				}
+
 				long time = rs.getLong("time");
-				long until = rs.getLong("until");
-				String durationStr = "Unknown";
+				long until = 0;
+				if (hasUntil) until = rs.getLong("until");
+
+				String durationStr = "N/A";
 
 				if (type.equals("warn")) {
 					durationStr = "Įspėjimas";
+				} else if (type.equals("kick")) {
+					durationStr = "Kick";
 				} else if (until <= 0) {
 					durationStr = "Permanent";
 				} else {
@@ -333,7 +393,7 @@ public class DatabaseManager {
 
 				entries.add(new HistoryManager.HistoryEntry(
 						type,
-						rs.getString("reason"),
+						cleanReason(rawReason),
 						rs.getString("banned_by_name"),
 						time,
 						durationStr
@@ -409,22 +469,33 @@ public class DatabaseManager {
 		String periodStr = plugin.getConfig().getString("history-filter.mutes", "30d");
 		long minTime = System.currentTimeMillis() - TimeUtils.parseTime(periodStr);
 
-		admin.sendMessage(ChatColor.GOLD + "=== BENDRA ISTORIJA (" + periodStr + ") ===");
-
 		String table = getTable("mutes");
 		plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
 			String query = "SELECT * FROM " + table + " WHERE uuid=? AND time > ? ORDER BY time DESC LIMIT 10";
 			executeQuery(query, rs -> {
 				boolean found = false;
+				List<String> validLogs = new ArrayList<>();
+
 				while (rs.next()) {
-					found = true;
 					String reason = rs.getString("reason");
+					if (reason == null || reason.contains("OFF-") || reason.contains("[RESET]")) continue;
+
+					found = true;
 					String by = rs.getString("banned_by_name");
 					java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("MM-dd HH:mm");
 					String date = sdf.format(new java.util.Date(rs.getLong("time")));
-					admin.sendMessage(ChatColor.RED + "[" + date + "] " + reason + ChatColor.GRAY + " (" + by + ")");
+
+					validLogs.add(ChatColor.RED + "[" + date + "] " + reason + ChatColor.GRAY + " (" + by + ")");
 				}
-				if (!found) admin.sendMessage(ChatColor.GRAY + "Istorija tuščia.");
+
+				if (found) {
+					admin.sendMessage(ChatColor.GOLD + "=== BENDRA ISTORIJA (" + periodStr + ") ===");
+					for (String log : validLogs) {
+						admin.sendMessage(log);
+					}
+				} else {
+					admin.sendMessage(ChatColor.GRAY + "Istorija tuščia (arba taisyklė nerasta config).");
+				}
 			}, uuid, minTime);
 		});
 	}
@@ -442,32 +513,7 @@ public class DatabaseManager {
 				}, uuid);
 				String ip = targetIP.get();
 
-				java.util.concurrent.atomic.AtomicBoolean hasRecentBan = new java.util.concurrent.atomic.AtomicBoolean(false);
-				java.util.concurrent.atomic.AtomicLong banTime = new java.util.concurrent.atomic.AtomicLong(0);
-
-				if (reasonFilter != null) {
-					String table = getTable("bans");
-					String query = "SELECT time FROM " + table + " WHERE (uuid=? OR ip=?) AND reason LIKE ? ORDER BY time DESC LIMIT 1";
-
-					executeQuery(query, rs -> {
-						if (rs.next()) {
-							hasRecentBan.set(true);
-							banTime.set(rs.getLong("time"));
-						}
-					}, uuid, (ip != null ? ip : uuid), "%" + reasonFilter + "%");
-				}
-
-				long minTime;
-				ZoneId zone = ZoneId.of("Europe/Vilnius");
-				ZonedDateTime now = ZonedDateTime.now(zone);
-				long startOfMonth = now.with(TemporalAdjusters.firstDayOfMonth()).withHour(0).withMinute(0).withSecond(0).toInstant().toEpochMilli();
-
-				if (hasRecentBan.get() && banTime.get() >= startOfMonth) {
-					minTime = startOfMonth;
-				} else {
-					String historyPeriod = plugin.getConfig().getString("history-filter.bans", "30d");
-					minTime = System.currentTimeMillis() - TimeUtils.parseTime(historyPeriod);
-				}
+				long minTime = System.currentTimeMillis() - (90L * 24 * 60 * 60 * 1000);
 
 				java.util.concurrent.atomic.AtomicInteger count = new java.util.concurrent.atomic.AtomicInteger(0);
 				if (reasonFilter != null) {
@@ -475,6 +521,7 @@ public class DatabaseManager {
 					count.addAndGet(countEntries("mutes", uuid, ip, minTime, filter));
 					count.addAndGet(countEntries("bans", uuid, ip, minTime, filter));
 					count.addAndGet(countEntries("warnings", uuid, ip, minTime, filter));
+					count.addAndGet(countEntries("kicks", uuid, ip, minTime, filter));
 				}
 
 				int targetLevel = count.get();
