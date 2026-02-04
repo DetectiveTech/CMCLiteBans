@@ -4,12 +4,18 @@ import com.LiteBansByCMC.BausmePlugin;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -19,11 +25,58 @@ public class PatikraManager implements Listener {
 	private final BausmePlugin plugin;
 	private final Map<UUID, CheckSession> activeChecks = new HashMap<>();
 
+	// Failas saugoti žaidėjus, kuriems reikia nuimti jail prisijungus
+	private File unjailFile;
+	private FileConfiguration unjailConfig;
+
 	public PatikraManager(BausmePlugin plugin) {
 		this.plugin = plugin;
 		Bukkit.getPluginManager().registerEvents(this, plugin);
+		loadUnjailData();
 	}
 
+	private void loadUnjailData() {
+		unjailFile = new File(plugin.getDataFolder(), "unjail_queue.yml");
+		if (!unjailFile.exists()) {
+			try { unjailFile.createNewFile(); } catch (IOException e) { e.printStackTrace(); }
+		}
+		unjailConfig = YamlConfiguration.loadConfiguration(unjailFile);
+	}
+
+	private void saveUnjailData() {
+		try { unjailConfig.save(unjailFile); } catch (IOException e) { e.printStackTrace(); }
+	}
+
+	// --- UNJAIL QUEUE LOGIC ---
+	private void queueUnjail(String playerName) {
+		List<String> list = unjailConfig.getStringList("pending");
+		if (!list.contains(playerName)) {
+			list.add(playerName);
+			unjailConfig.set("pending", list);
+			saveUnjailData();
+		}
+	}
+
+	@EventHandler
+	public void onJoin(PlayerJoinEvent e) {
+		Player p = e.getPlayer();
+		List<String> list = unjailConfig.getStringList("pending");
+
+		if (list.contains(p.getName())) {
+			// Žaidėjas prisijungė, ir jis laukia unjail
+			Bukkit.getScheduler().runTaskLater(plugin, () -> {
+				Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "essentials:unjail " + p.getName());
+				plugin.getLogger().info("[Patikra] Queued unjail executed for " + p.getName());
+
+				// Išimame iš sąrašo
+				list.remove(p.getName());
+				unjailConfig.set("pending", list);
+				saveUnjailData();
+			}, 20L); // 1 sekundės pauzė po prisijungimo, kad Essentials užsikrautų
+		}
+	}
+
+	// --- COMMAND HANDLER ---
 	public void handleCommand(CommandSender sender, String[] args) {
 		if (!sender.hasPermission("bausme.patikra")) {
 			sender.sendMessage(ChatColor.RED + "Neturite teisės.");
@@ -63,6 +116,9 @@ public class PatikraManager implements Listener {
 			stopCheck(target.getUniqueId());
 			sender.sendMessage(color(plugin.getConfig().getString("patikra.messages.stopped_admin").replace("{player}", target.getName())));
 			target.sendMessage(ChatColor.YELLOW + "Laikmatis sustabdytas.");
+
+			// Jei stop rankiniu būdu, galime irgi nuimti jail
+			Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "essentials:unjail " + target.getName());
 			return;
 		}
 
@@ -90,8 +146,8 @@ public class PatikraManager implements Listener {
 		CheckSession session = new CheckSession(p.getName(), text, duration);
 		activeChecks.put(p.getUniqueId(), session);
 
-		// Vykdome komandą nedelsiant
-		executePunishment(p, "start-command");
+		// Start command
+		executeStartCommand(p, "start-command");
 
 		int interval = plugin.getConfig().getInt("patikra.message-interval", 30);
 
@@ -99,7 +155,8 @@ public class PatikraManager implements Listener {
 			session.timeLeft -= interval;
 
 			if (session.timeLeft <= 0) {
-				executePunishment(p, "timeout-command");
+				// LAIKAS BAIGĖSI (Player is ONLINE)
+				executePunishment(p, "timeout-command", true); // true = player is online
 				String broadcast = plugin.getConfig().getString("patikra.messages.logout_broadcast");
 				if (broadcast != null) Bukkit.broadcastMessage(color(broadcast.replace("{player}", p.getName())));
 				stopCheck(p.getUniqueId());
@@ -127,25 +184,50 @@ public class PatikraManager implements Listener {
 		}
 	}
 
-	private void executePunishment(Player player, String configKey) {
+	private void executeStartCommand(Player player, String configKey) {
+		String cmdTemplate = plugin.getConfig().getString("patikra." + configKey);
+		if (cmdTemplate == null || cmdTemplate.isEmpty()) return;
+
+		String finalCmd = cmdTemplate.replace("{player}", player.getName());
+		if (finalCmd.startsWith("jail ")) finalCmd = "essentials:" + finalCmd;
+
+		String exec = finalCmd;
+		Bukkit.getScheduler().runTask(plugin, () -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), exec));
+	}
+
+	// EXECUTE PUNISHMENT
+	// isOnline = true (Laikas baigėsi), false (Atsijungė)
+	private void executePunishment(Player player, String configKey, boolean isOnline) {
+
+		// 1. UNJAIL LOGIC
+		if (isOnline) {
+			// Jei žaidėjas prisijungęs, nuimame jail iš karto
+			Bukkit.getScheduler().runTask(plugin, () -> {
+				Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "essentials:unjail " + player.getName());
+			});
+		} else {
+			// Jei žaidėjas atsijungęs, dedame į eilę
+			queueUnjail(player.getName());
+			plugin.getLogger().info("[Patikra] Player offline. Added " + player.getName() + " to unjail queue.");
+		}
+
+		// 2. BAN LOGIC
 		String cmdTemplate = plugin.getConfig().getString("patikra." + configKey);
 		if (cmdTemplate == null || cmdTemplate.isEmpty()) return;
 
 		if (cmdTemplate.equals("SMART_PUNISHMENT")) {
 			plugin.getDbManager().executeSmartPunishmentConsole(player.getName(), player.getUniqueId().toString(), "cheats_use");
 		} else {
-			// FORCE ESSENTIALS PREFIX if command starts with jail
 			String finalCmd = cmdTemplate.replace("{player}", player.getName());
-			if (finalCmd.startsWith("jail ")) {
-				finalCmd = "essentials:" + finalCmd;
-			}
+			if (finalCmd.startsWith("jail ")) finalCmd = "essentials:" + finalCmd;
 
 			String exec = finalCmd;
-			plugin.getLogger().info("[Patikra DEBUG] Executing: " + exec); // DEBUG LOG
+			// Jei online, duodam mažą pauzę, kad unjail suveiktų
+			long delay = isOnline ? 5L : 0L;
 
-			Bukkit.getScheduler().runTask(plugin, () -> {
+			Bukkit.getScheduler().runTaskLater(plugin, () -> {
 				Bukkit.dispatchCommand(Bukkit.getConsoleSender(), exec);
-			});
+			}, delay);
 		}
 	}
 
@@ -153,9 +235,13 @@ public class PatikraManager implements Listener {
 	public void onQuit(PlayerQuitEvent e) {
 		if (activeChecks.containsKey(e.getPlayer().getUniqueId())) {
 			Player p = e.getPlayer();
-			executePunishment(p, "logout-command");
+
+			// Vykdome bausmę su žyma, kad žaidėjas OFFLINE
+			executePunishment(p, "logout-command", false);
+
 			String broadcast = plugin.getConfig().getString("patikra.messages.logout_broadcast");
 			if (broadcast != null) Bukkit.broadcastMessage(color(broadcast.replace("{player}", p.getName())));
+
 			stopCheck(p.getUniqueId());
 		}
 	}
